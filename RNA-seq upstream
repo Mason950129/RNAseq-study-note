@@ -1,0 +1,51 @@
+#激活环境
+export PATH=$PATH:/data8/home/xuhanyu/App/miniconda3/bin/
+source activate RNAseq
+#创建目录
+mkdir ./Ref/
+cd ./Ref/
+#gff3转gtf
+#gffread Gmax_508_Wm82.a4.v1.gene.gff3 -T -o Gmax_508_Wm82.a4.v1.gene.gtf 
+#建立参考基因组索引
+hisat2_extract_exons.py Glycine_max.Glycine_max_v2.1.57.gtf > genome.exon
+hisat2_extract_splice_sites.py Glycine_max.Glycine_max_v2.1.57.gtf > genome.ss
+hisat2-build -p 32 Glycine_max.Glycine_max_v2.1.dna.toplevel.fa --ss genome.ss --exon genome.exon Glycine_max_v2.1
+
+cd ../
+mkdir ./Cleandata/
+#QC
+for i in SRR12615434 SRR12615435 SRR12615436 SRR12615437 SRR12615438 SRR12615439 ;do
+  {
+  fastp -i ./RawData/${i}_1.raw.fq.gz -o ./Cleandata/${i}_1.clean.fastq.gz -I ./RawData/${i}/${i}_2.raw.fq.gz -O ./Cleandata/${i}_2.clean.fastq.gz  -g -q 5 -u 50 -n 32 -l 150 --html ./Cleandata/${i}.html --json ./Cleandata/${i}.json
+  } 
+done
+
+mkdir ./Bam/
+#参考基因组比对生成sam文件
+for i in SRR12615434 SRR12615435 SRR12615436 SRR12615437 SRR12615438 SRR12615439 ;do
+{
+  hisat2 --dta -p 32 -x ./Ref/Glycine_max_v2.1 -1 ./CleanData/${i}/${i}_1.clean.fq.gz -2 ./CleanData/${i}/${i}_2.clean.fq.gz -S ./Bam/${i}.sam
+  } 
+done 
+#sam文件转bam文件
+#samtools sort -@ 32  SRR12615434.sam -o SRR12615434.bam 
+
+for i in SRR12615434 SRR12615435 SRR12615436 SRR12615437 SRR12615438 SRR12615439 ;do
+  {
+   samtools sort -@ 32 ./Bam/${i}.sam -o ./Bam/${i}.bam 
+  }
+done
+
+export PATH=$PATH:/data8/home/xuhanyu/App/subread-2.0.6-source/bin
+
+mkdir ./Counts/
+#统计Count数
+for i in SRR12615434 SRR12615435 SRR12615436 SRR12615437 SRR12615438 SRR12615439;do
+{ 
+featureCounts -p -t exon -g gene_id -T 32 -a ./Ref/Glycine_max.Glycine_max_v2.1.57.gtf -o ./Counts/${i}_counts.txt ./Bam/${i}.bam  #-g 
+}
+done
+
+featureCounts -p -t exon -g gene_id -T 32 -a ./Ref/Glycine_max.Glycine_max_v2.1.57.gtf -o ./Counts/all_counts.txt ./Bam/*.bam  
+
+multiqc ./Counts/all_counts.txt.summary
